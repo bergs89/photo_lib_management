@@ -1,17 +1,20 @@
-import skimage.measure
-import matplotlib.pyplot as plt
 import numpy as np
-import cv2
 import os
-import imghdr
-import argparse
 import cv2
-
-from imutils import paths
-from pathlib import Path
+import pandas as pd
 
 
+from find_duplicates import Duplicates
+from find_blurry import Blurry
 
+
+
+def load_image(path):
+    return cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+
+
+def resize_image(image, compression):
+    return cv2.resize(image, dsize=(compression, compression), interpolation=cv2.INTER_CUBIC)
 
 
 # Function that calulates the mean squared error (mse) between two image matrices
@@ -27,38 +30,40 @@ def rotate_img(image):
     return image
 
 
-# Function for printing filename info of plotted image files
-def show_file_info(compared_img, main_img):
-    print("Duplicate file: " + image_files[main_img] + " and " + image_files[compared_img])
+def make_df(path, ):
+    df = pd.DataFrame()
+
+    paths = find_files(path)
+    df['paths'] = paths
+
+    duplicates = []
+    for file in paths:
+        col_name = 'duplicate' + str(file)
+        for second_file in paths:
+            duplicate = Duplicates(file, second_file).find_duplicates(similarity="low")
+            duplicates.append(duplicate)
+        df[col_name] = duplicates
+
+    return df
 
 
-# Function for checking the quality of compared images, appends the lower quality image to the list
-def check_img_quality(directory, imageA, imageB, list):
-    size_imgA = os.stat(directory + imageA).st_size
-    size_imgB = os.stat(directory + imageB).st_size
-    if size_imgA > size_imgB:
-        add_to_list(imageB, list)
-    else:
-        add_to_list(imageA, list)
+def update_df_blurry(path, df, ):
+    paths = find_files(path)
+
+    blurred = []
+    for file in paths:
+        duplicate_col_name = 'duplicate' + str(file)
+        col_name = 'blurred' + str(file)
+        for second_file in paths:
+            if df[duplicate_col_name].loc[second_file] is True:
+                blurry = Blurry(file,second_file).find_blurry()
+                blurred.append(blurry[1])
+
+        df[col_name] = blurred
+    return df
 
 
-def variance_of_laplacian(image):
-    """Blur detection with OpenCV"""
-    # compute the Laplacian of the image and then return the focus
-    # measure, which is simply the variance of the Laplacian
-    return cv2.Laplacian(cv2.imread(image), cv2.CV_64F).var()
+def find_files(path):
+    return [os.path.join(dp, f) for dp, dn, fn in os.walk(path) for f in fn]
 
 
-def check_focus_quality(directory, imageA, imageB, list):
-    sharpness_img_a = variance_of_laplacian(directory + imageA)
-    sharpness_img_b = variance_of_laplacian(directory + imageB)
-    if sharpness_img_a > sharpness_img_b:
-        delta_sharpness = sharpness_img_a - sharpness_img_b
-        sharpness_ratio = delta_sharpness / sharpness_img_a
-        if sharpness_ratio > 0.15:
-            add_to_list(imageB, list)
-    else:
-        delta_sharpness = sharpness_img_b - sharpness_img_a
-        sharpness_ratio = delta_sharpness / sharpness_img_b
-        if sharpness_ratio > 0.15:
-            add_to_list(imageA, list)
